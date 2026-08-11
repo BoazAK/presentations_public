@@ -1,3 +1,26 @@
+# =============================
+# macOS junk files
+# =============================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+Icon?
+.localized
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+
+# =============================
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
