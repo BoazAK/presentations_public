@@ -42,8 +42,8 @@ python demos/port_scanner.py
 ### Option 2 : Installation manuelle
 
 ```bash
-git clone https://github.com/[ton-compte]/presentations.git
-cd presentations/pycon_2026
+git clone https://github.com/BoazAK/presentations_public.git
+cd presentations_public/pycon_2026
 pip install -r requirements.txt
 python demos/port_scanner.py
 ```
@@ -66,6 +66,6 @@ python demos/port_scanner.py
 
 ## 📧 Contact
 
-- GitHub : [ton-compte]
-- Twitter/X : [@ton-compte]
-- LinkedIn : [ton-compte]
+- GitHub : [BoazAK](https://github.com/BoazAK)
+- Twitter/X : [@BoazakK](https://twitter.com/BoazakK)
+- LinkedIn : [boazak](https://www.linkedin.com/in/boazak)
