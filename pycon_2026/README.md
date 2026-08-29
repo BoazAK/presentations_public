@@ -66,6 +66,5 @@ python demos/port_scanner.py
 
 ## 📧 Contact
 
-- GitHub : [BoazAK](https://github.com/BoazAK)
 - Twitter/X : [@BoazakK](https://twitter.com/BoazakK)
 - LinkedIn : [boazak](https://www.linkedin.com/in/boazak)
