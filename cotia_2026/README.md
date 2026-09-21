@@ -168,7 +168,7 @@ ls cotia_2026/.venv # ne doit plus exister
 | Lab | PortSwigger LLM AI Security Academy |
 | Lab | prompt-injection.org (attacks & mitigations) |
 | Outil | Ollama, Giskard, Lakera Guard |
-| Communauté | IndabaX Togo, IndabaM, Deep Learning Indaba |
+| Communauté | IndabaX Togo, Neuractif |
 
 ---
 
