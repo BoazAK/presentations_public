@@ -8,6 +8,7 @@ Dépôt de présentations pour conférences et meetups.
 |---------|-----------|-------|
 | [`pycon_2026/`](./pycon_2026/) | PyCon Togo 2026 | Sécurité, Open Source & Technologies Émergentes avec Python |
 | [`cotia_2026/`](./cotia_2026/) | IndabaX Togo 2026 | Sécuriser les LLM : le pentest des applications basées sur l'IA |
+| [`tdev/`](./tdev/) | TDev Series Octobre 2026 | La sécurité des applications à l'ère de l'IA |
 
 
 
