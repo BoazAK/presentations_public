@@ -1,0 +1,27 @@
+# ACL du mode hardened : une identité par équipement, le minimum de droits.
+
+# Passerelle capteurs + contrôleur de vanne de la serre.
+user simulator
+topic write farm/sensor/#
+topic read farm/actuator/valve
+topic write farm/actuator/valve/state
+topic write farm/alert
+
+# Dashboard : lit la ferme, envoie des commandes signées.
+user dashboard
+topic read farm/sensor/#
+topic read farm/actuator/valve/state
+topic read farm/alert
+topic write farm/actuator/valve
+
+# Écran d'affichage du bureau (identifiants « fuités » dans la démo) : lecture capteurs.
+user viewer
+topic read farm/sensor/#
+
+# Prestataire de maintenance : peut piloter la vanne, mais ne connaît pas la clé HMAC.
+user maintenance
+topic readwrite farm/actuator/#
+
+# Capteur d'humidité n°2 (firmware extrait dans la démo) : publie sa seule mesure.
+user sensor-02
+topic write farm/sensor/humidity

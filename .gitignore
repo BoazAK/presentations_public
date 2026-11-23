@@ -239,3 +239,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# gdg_lome lab : PKI et mots de passe générés localement
+gdg_lome/2026/demos/mosquitto/tls/
+gdg_lome/2026/demos/mosquitto/secrets/

@@ -1,0 +1,77 @@
+# Lab « Serre sous attaque » — GDG Lomé 2026.
+# Mode choisi par FARM_MODE dans .env (insecure | secure | hardened).
+# Changer de mode : bash scripts/mode.sh <mode>  (ne pas préfixer une seule commande).
+name: ${STACK_NAME:-gdg-farm-dev}
+
+x-farm-env: &farm-env
+  MQTT_HOST: mosquitto
+  FARM_MODE: ${FARM_MODE:-insecure}
+  DEMO_TOKEN: ${DEMO_TOKEN:-gdg-demo-token}
+  CMD_HMAC_KEY: ${CMD_HMAC_KEY:-}
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: ${STACK_NAME:-gdg-farm-dev}-mosquitto
+    volumes:
+      - ./mosquitto/${FARM_MODE:-insecure}.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/tls/server:/mosquitto/tls:ro
+      - ./mosquitto/secrets:/mosquitto/secrets:ro
+    ports:
+      - "${LAB_BIND:-127.0.0.1}:1883:1883"
+      - "${LAB_BIND:-127.0.0.1}:8883:8883"
+    restart: unless-stopped
+    networks: [farm]
+
+  simulator:
+    build: ./simulator
+    image: ${STACK_NAME:-gdg-farm-dev}-simulator
+    container_name: ${STACK_NAME:-gdg-farm-dev}-simulator
+    environment:
+      <<: *farm-env
+      MQTT_USER: simulator
+      MQTT_PASS: ${MQTT_PASS_SIMULATOR:-}
+    volumes:
+      - ./mosquitto/tls/public:/certs:ro
+    depends_on: [mosquitto]
+    restart: unless-stopped
+    networks: [farm]
+
+  dashboard:
+    build: ./dashboard
+    image: ${STACK_NAME:-gdg-farm-dev}-dashboard
+    container_name: ${STACK_NAME:-gdg-farm-dev}-dashboard
+    environment:
+      <<: *farm-env
+      MQTT_USER: dashboard
+      MQTT_PASS: ${MQTT_PASS_DASHBOARD:-}
+    volumes:
+      - ./mosquitto/tls/public:/certs:ro
+    ports:
+      - "${LAB_BIND:-127.0.0.1}:8080:8080"
+    depends_on: [mosquitto]
+    restart: unless-stopped
+    networks: [farm]
+
+  # Pas de depends_on : « docker compose run attacker » ne doit jamais recréer
+  # le dashboard ni le simulateur (sinon changement de mode silencieux en démo).
+  attacker:
+    build: ./attacker
+    image: ${STACK_NAME:-gdg-farm-dev}-attacker
+    profiles: [attack]
+    environment:
+      MQTT_HOST: mosquitto
+      DASHBOARD_URL: http://dashboard:8080
+      DEMO_TOKEN: ${DEMO_TOKEN:-gdg-demo-token}
+      LEAK_VIEWER_PASS: ${LEAK_VIEWER_PASS:-}
+      LEAK_MAINTENANCE_PASS: ${LEAK_MAINTENANCE_PASS:-}
+      LEAK_SENSOR02_PASS: ${LEAK_SENSOR02_PASS:-}
+    volumes:
+      - ./mosquitto/tls/public:/certs:ro
+    networks: [farm]
+
+networks:
+  farm:
+    name: ${STACK_NAME:-gdg-farm-dev}-network
+    driver: bridge

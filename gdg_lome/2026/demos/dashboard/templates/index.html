@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Serre simulée — GDG Lomé 2026</title>
+  <style>
+    :root { --bg: #f7faf6; --ink: #0b1f14; --green: #166534; --line: #d5e6d5; --alert: #c2410c; --warn: #b45309; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 1.5rem 2rem; background: var(--bg); color: var(--ink); }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    h1 { color: var(--green); margin: 0 0 1rem; font-size: 2rem; }
+    .mode { font-weight: 800; padding: .3rem .8rem; border-radius: 999px; color: #fff; text-transform: uppercase; letter-spacing: .05em; }
+    .mode.insecure { background: var(--alert); }
+    .mode.secure { background: var(--warn); }
+    .mode.hardened { background: var(--green); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 1rem; }
+    .label { font-size: .95rem; opacity: .75; }
+    .value { font-size: 2.4rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .bad { color: var(--alert); }
+    .impact { margin-top: 1rem; background: var(--ink); color: #f7faf6; border-radius: 12px; padding: 1rem 1.4rem;
+              display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+    .impact .value { font-size: 2.1rem; }
+    .impact .total { color: #fdba74; }
+    .events { margin-top: 1rem; }
+    .events ul { list-style: none; padding: 0; margin: .5rem 0 0; font-family: ui-monospace, monospace; font-size: .95rem; }
+    .events li { padding: .35rem .6rem; border-left: 4px solid var(--line); background: #fff; margin-bottom: .3rem; }
+    .events li.alert { border-color: var(--alert); }
+    .events li.warn { border-color: var(--warn); }
+    .events li.info { border-color: var(--green); }
+    footer { margin-top: 1rem; font-size: .85rem; opacity: .7; }
+    button { background: var(--green); color: #fff; border: 0; border-radius: 6px; padding: .6rem 1rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Serre simulée <small>— GDG Lomé 2026</small></h1>
+    <span class="mode" id="mode">—</span>
+  </header>
+
+  <div class="grid">
+    <div class="card"><div class="label">Humidité du sol</div><div class="value" id="hum">—</div></div>
+    <div class="card"><div class="label">Température</div><div class="value" id="temp">—</div></div>
+    <div class="card"><div class="label">Vanne (état affiché)</div><div class="value" id="valve">—</div></div>
+    <div class="card"><div class="label">Débitmètre</div><div class="value" id="flow">—</div></div>
+    <div class="card"><div class="label">Score rendement (modèle)</div><div class="value" id="score">—</div></div>
+  </div>
+
+  <section class="impact">
+    <div><div class="label">Eau déversée</div><div class="value" id="liters">—</div></div>
+    <div><div class="label">Coût de l'eau</div><div class="value" id="water">—</div></div>
+    <div><div class="label">Récolte menacée</div><div class="value" id="crop">—</div></div>
+    <div><div class="label">Impact total estimé</div><div class="value total" id="total">—</div></div>
+  </section>
+
+  <section class="events">
+    <strong>Journal de sécurité</strong>
+    <ul id="events"><li>Aucun événement.</li></ul>
+  </section>
+
+  <p><button id="open">Ouvrir la vanne (sans token)</button> <span id="status"></span></p>
+
+  <footer id="hyp"></footer>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const fcfa = (n) => n.toLocaleString('fr-FR') + ' FCFA';
+
+    function render(d) {
+      $('mode').textContent = d.mode;
+      $('mode').className = 'mode ' + d.mode;
+      $('hum').textContent = d.humidity === null ? '—' : d.humidity + ' %';
+      $('hum').className = 'value' + (d.humidity !== null && d.humidity < 40 ? ' bad' : '');
+      $('temp').textContent = d.temperature === null ? '—' : d.temperature + ' °C';
+      $('valve').textContent = d.valve;
+      $('valve').className = 'value' + (d.valve === 'OPEN' ? ' bad' : '');
+      $('flow').textContent = d.flow + ' L/min';
+      $('flow').className = 'value' + (d.flow > 1 ? ' bad' : '');
+      $('score').textContent = d.score + ' %';
+      $('score').className = 'value' + (d.score < 60 ? ' bad' : '');
+      $('liters').textContent = d.impact.liters.toLocaleString('fr-FR') + ' L';
+      $('water').textContent = fcfa(d.impact.water_fcfa);
+      $('crop').textContent = fcfa(d.impact.crop_at_risk_fcfa);
+      $('total').textContent = fcfa(d.impact.total_fcfa);
+
+      const list = $('events');
+      list.replaceChildren();
+      if (!d.events.length) {
+        const li = document.createElement('li');
+        li.textContent = d.mode === 'insecure' ? 'Aucun journal : rien n\'est surveillé.' : 'Aucun événement.';
+        list.append(li);
+      }
+      for (const e of d.events.slice(0, 10)) {
+        const li = document.createElement('li');
+        li.className = e.level;
+        li.textContent = `${e.t}  ${e.text}`;
+        list.append(li);
+      }
+
+      const h = d.hypotheses;
+      $('hyp').textContent = `Hypothèses : ${h.serre} · ${h.rendement_kg.toLocaleString('fr-FR')} kg/cycle à `
+        + `${h.prix_fcfa_kg} FCFA/kg · ${h.debit_l_min} L/min · eau ${h.eau_fcfa_m3} FCFA/m³ · `
+        + `temps accéléré ×${h.acceleration} (1 s = 1 min).`;
+    }
+
+    async function refresh() {
+      try {
+        const r = await fetch('/api/state');
+        render(await r.json());
+      } catch (_) { /* le dashboard redémarre : on réessaie à la seconde suivante */ }
+    }
+
+    $('open').onclick = async () => {
+      const r = await fetch('/api/valve/open', { method: 'POST' });
+      $('status').textContent = 'HTTP ' + r.status;
+    };
+    refresh();
+    setInterval(refresh, 1000);
+  </script>
+</body>
+</html>
