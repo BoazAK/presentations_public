@@ -1,0 +1,23 @@
+name: ${STACK_NAME:-rtm1-demo}
+
+services:
+  portal:
+    build: .
+    image: ${STACK_NAME:-rtm1-demo}-portal
+    container_name: ${STACK_NAME:-rtm1-demo}-portal
+    restart: unless-stopped
+    ports:
+      - "${PORT_HTTP:-30300}:8080"
+    networks:
+      rtm1_net:
+        ipv4_address: 172.30.40.10
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  rtm1_net:
+    name: ${STACK_NAME:-rtm1-demo}-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${CTF_SUBNET:-172.30.40.0/24}
