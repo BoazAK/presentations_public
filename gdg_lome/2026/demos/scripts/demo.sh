@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ensure_attacker() { docker compose --progress quiet --profile attack up -d attacker >/dev/null; }
-run()  { docker compose exec -T attacker python attack.py "$@"; }
+run()  { docker compose exec -T attacker python3 attack.py "$@"; }
 atk()  { docker compose exec -T attacker "$@"; }
 step() { printf '\n\033[1;32m$ %s\033[0m\n' "$*"; [[ ${NO_PAUSE:-} ]] || read -r -p "  (Entrée)" _; }
 

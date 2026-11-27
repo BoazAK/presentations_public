@@ -25,7 +25,7 @@ fi
 
 if [[ ${1:-} == --purge ]]; then
   echo "== Images de base"
-  docker rmi eclipse-mosquitto:2 python:3.12-slim 2>/dev/null || true
+  docker rmi eclipse-mosquitto:2 kalilinux/kali-rolling 2>/dev/null || true
 fi
 
 echo "Terminé. Vérifier : docker ps -a | grep $STACK  (doit être vide)"

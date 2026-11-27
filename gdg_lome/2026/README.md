@@ -1,89 +1,91 @@
-# GDG Lomé 2026 — Serre sous attaque
+# GDG Lome 2026 — Serre sous attaque
 
-> **Pentest d'une ferme connectée, du capteur au cloud**
->
-> Talk + démo live — GDG Lomé 2026
+Talk de 30 minutes + démo live, en français, pour la communauté GDG (développeurs).
 
-On attaque une serre connectée **simulée** (capteurs, broker MQTT, dashboard,
-modèle de rendement, vanne d'irrigation), puis on reconstruit ses défenses. Tout
-tourne dans Docker : **aucun capteur réel, aucun signal radio, aucune cible
-externe**. Le lab reste sur `127.0.0.1` par défaut.
+## Thème
 
-> ✅ **Validé** : les 4 actes ont été rejoués de bout en bout dans les 3 modes
-> (attaque réussie en `insecure`, défense naïve contournée en `secure`, attaques
-> bloquées en `hardened`, et la dérive lente comme limite du détecteur).
+**Serre sous attaque : pentest d'une ferme connectée, du capteur au cloud**
 
----
+## Description
 
-## 📋 Contenu du dossier
+Une ferme connectée empile des capteurs, des automates, un broker MQTT et des modèles
+d'IA qui décident à notre place de l'irrigation, du climat et des rendements. Cette
+surface d'attaque est encore très peu auditée, et une simple télémétrie falsifiée peut
+se transformer en perte physique réelle.
+
+Pendant ce talk, nous attaquons une serre **simulée** (100 % Docker, zéro matériel) :
+découverte du réseau, lecture d'un broker MQTT anonyme, injection de mesures
+trompeuses, détournement d'une vanne d'irrigation, puis empoisonnement du modèle de
+rendement. Nous reconstruisons ensuite les défenses : segmentation, authentification
+MQTT, validation des données, contrôle des actionneurs et détection d'anomalies.
+
+Tout est local, reproducible et sans danger : aucune cible réelle, aucun matériel,
+aucune émission radio.
+
+## Speaker
+
+**Boaz Kodjo BoazAK** — nom conservé sans changement.
+
+Application Security Specialist, DevSecOps and Penetration Tester |
+Mandela Washington Fellowship Alumnus
+
+Réseaux (même identifiant sur tous) : Twitter, TikTok, LinkedIn, Instagram, Facebook —
+`Boaz Kodjo BoazAK`
+
+Hashtags : `#KodjoDoDjango` `#InfoSecKodjo`
+
+## Contenu du dossier
 
 ```
 gdg_lome/2026/
-├── demos/                      ← lab Docker complet
-│   ├── mosquitto/                 ← 3 configs broker (insecure/secure/hardened) + ACL
-│   ├── simulator/                 ← capteurs + contrôleur de vanne
-│   ├── dashboard/                 ← tableau de bord, modèle, impact en FCFA, journal
-│   ├── attacker/                  ← attack.py, nmap, mosquitto-clients
-│   ├── scripts/                   ← setup.sh, mode.sh, demo.sh, teardown.sh
+├── README.md              ← ce fichier
+├── abstract.md            ← résumé CFP + bio + réseaux
+├── slides.md              ← source Marp (slides en français)
+├── build_deck.js          ← génère « Presentation 2026.pptx » depuis le même contenu
+├── Presentation 2026.pptx ← deck PowerPoint généré
+├── demos/                 ← lab Docker complet + script de démo
+│   ├── README.md
 │   ├── compose.yaml
 │   ├── .env.example
-│   └── README.md                  ← guide complet du lab (install → nettoyage)
+│   ├── mosquitto/         ← insecure/secure/hardened.conf + acl
+│   ├── simulator/
+│   ├── dashboard/
+│   ├── attacker/
+│   └── scripts/           ← setup.sh, mode.sh, demo.sh
 └── docs/
-    └── guide_participant.md    ← atelier pas à pas (7 exercices + corrigé)
+    ├── fiche_setup_demo.md ← fiche speaker : set-up, minutage, commandes
+    └── guide_participant.md
 ```
 
----
-
-## 🚀 Installation
-
-Prérequis : Docker + Docker Compose (v2).
+## Démarrage rapide
 
 ```bash
-cd gdg_lome/2026/demos
-docker pull eclipse-mosquitto:2 python:3.12-slim
-bash scripts/setup.sh            # .env, secrets, PKI locale, comptes MQTT, images
+cd demos
+bash scripts/setup.sh            # .env, secrets, PKI, comptes MQTT, images
 bash scripts/mode.sh insecure
-```
-
-Ouvrir <http://127.0.0.1:8080>.
-
-## ▶️ Jouer la démo
-
-```bash
 bash scripts/demo.sh all         # 4 actes, pause entre chaque commande
 ```
 
-| Acte | Mode | Ce qu'on montre |
-|---|---|---|
-| 1 | `insecure` | Reconnaissance, lecture de tout le bus MQTT anonyme |
-| 2 | `insecure` | Fausse télémétrie, vanne ouverte par `curl`, impact en litres et FCFA |
-| 3 | `secure` | La défense naïve contournée : token volé sur le bus et rejoué, faux état de vanne, empoisonnement plausible |
-| 4 | `hardened` | TLS + ACL + commandes signées HMAC bloquent tout ; puis la dérive lente, limite du détecteur |
+Ouvrir `http://127.0.0.1:8080`. Fiche speaker : `docs/fiche_setup_demo.md`.
 
-Changer de mode : `bash scripts/mode.sh insecure|secure|hardened`.
-Atelier détaillé : [`docs/guide_participant.md`](docs/guide_participant.md).
+## Les 4 actes
 
-## 🧹 Nettoyage
+1. **Ferme ouverte** (`insecure`) : nmap, écoute du bus MQTT.
+2. **Mentir et agir** : fausse humidité, vanne ouverte par `curl`, impact en FCFA.
+3. **Défense naïve contournée** (`secure`) : token volé sur le bus puis rejoué,
+   faux état `CLOSED` retenu, empoisonnement plausible.
+4. **Défense en profondeur** (`hardened`) : TLS, comptes, ACL, commandes HMAC
+   avec nonce, détection de saut et de cohérence ; puis la dérive lente comme limite.
 
-```bash
-docker compose down              # conteneurs + réseau
-bash scripts/teardown.sh         # + images et secrets locaux (PKI, mots de passe, .env)
-```
+## Répétition (check-list)
 
-Lancer `teardown.sh` après une démo sur une machine prêtée ou partagée : il efface
-la CA, les clés privées et les mots de passe générés localement.
+- [ ] `bash scripts/setup.sh` sans erreur
+- [ ] `NO_PAUSE=1 bash scripts/demo.sh all` : actes 1 à 4 conformes à la fiche
+- [ ] `node build_deck.js` régénère le PPTX, slides Marp relues
+- [ ] Vidéo et captures du Plan B prêtes (cf. `docs/fiche_setup_demo.md`)
 
----
+## Corrections appliquées au profil
 
-## ⚠️ Cadre
-
-Lab strictement pédagogique et local. Ne jamais l'exposer sur Internet. Les
-identifiants et tokens fournis sont des valeurs de démo publiques, à usage de lab
-uniquement.
-
-## 📧 Contact
-
-**Boaz Kodjo BoazAK** — Application Security Specialist, DevSecOps & Penetration Tester
-
-Twitter · TikTok · LinkedIn · Instagram · Facebook : `Boaz Kodjo BoazAK`
-`#KodjoDoDjango` · `#InfoSecKodjo`
+- `Pentration Tester` → `Penetration Tester`
+- `Alumni Mandela Washington Fellowship` → `Mandela Washington Fellowship Alumnus`
+- Accents français ajoutés dans les intitulés (`présentation`, `démo`, `réseaux`).

