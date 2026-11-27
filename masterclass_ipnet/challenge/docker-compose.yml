@@ -7,7 +7,9 @@ services:
     container_name: ${STACK_NAME:-rtm1-demo}-portal
     restart: unless-stopped
     ports:
-      - "${PORT_HTTP:-30300}:8080"
+      # Bind sur loopback : accessible en local (navigateur) et via rtm1_net (attaquant),
+      # PAS exposé au réseau local — le service est volontairement vulnérable (RCE).
+      - "127.0.0.1:${PORT_HTTP:-30300}:8080"
     networks:
       rtm1_net:
         ipv4_address: 172.30.40.10
