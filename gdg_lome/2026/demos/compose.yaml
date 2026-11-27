@@ -60,6 +60,11 @@ services:
     build: ./attacker
     image: ${STACK_NAME:-gdg-farm-dev}-attacker
     profiles: [attack]
+    # Conteneur persistant : démarré une fois, on « exec » dedans (shell + commandes).
+    # sleep infinity => reste vivant ; un « run attacker <cmd> » ponctuel override ceci.
+    command: ["sleep", "infinity"]
+    tty: true
+    stdin_open: true
     environment:
       MQTT_HOST: mosquitto
       DASHBOARD_URL: http://dashboard:8080

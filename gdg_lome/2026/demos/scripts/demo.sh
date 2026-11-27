@@ -4,8 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-run()  { docker compose --progress quiet run --rm -T attacker python attack.py "$@"; }
-atk()  { docker compose --progress quiet run --rm -T attacker "$@"; }
+ensure_attacker() { docker compose --progress quiet --profile attack up -d attacker >/dev/null; }
+run()  { docker compose exec -T attacker python attack.py "$@"; }
+atk()  { docker compose exec -T attacker "$@"; }
 step() { printf '\n\033[1;32m$ %s\033[0m\n' "$*"; [[ ${NO_PAUSE:-} ]] || read -r -p "  (Entrée)" _; }
 
 acte1() {
@@ -54,6 +55,7 @@ acte4() {
   step "attack.py state"; run state
 }
 
+ensure_attacker   # conteneur attaquant persistant, réutilisé par tous les actes
 case ${1:-all} in
   acte1) acte1 ;; acte2) acte2 ;; acte3) acte3 ;; acte4) acte4 ;;
   all) acte1; acte2; acte3; acte4 ;;
